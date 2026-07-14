@@ -339,6 +339,46 @@ message BatchGetRevisionsResponse {
     int32 found_count = 4;
 }
 
+// Batch revision creation - write many revisions in a single call.
+// The bulk-write RPC behind backfill, dream state, and migrations: N rows
+// land in one transaction and one (chunked) embedding pass instead of N
+// serial single-writes.
+message BatchCreateRevisionsRequest {
+    // Rows to write, in request order. Each row reuses CreateRevisionRequest;
+    // as with CreateRevision, `number` and `exists_error` are ignored
+    // (revision numbers are always server-assigned next-available).
+    // Missing parent Items are auto-created from item_kref (the parent Space
+    // must exist, or the row fails). Rows targeting the same item are applied
+    // in request order: consecutive numbers, SUPERSEDES chained between them,
+    // and the last row carries the 'latest' tag.
+    repeated CreateRevisionRequest revisions = 1;
+
+    // Optional idempotency prefix. When non-empty, each row is recorded under
+    // the key "{prefix}:{row_index}" transactionally with the write, so
+    // re-submitting the same batch returns the already-created revisions
+    // instead of writing duplicates. Empty = no idempotency.
+    string idempotency_prefix = 2;
+}
+
+message BatchRevisionFailure {
+    // Zero-based index of the failed row in the request.
+    int32 index = 1;
+    // Why the row was rejected (validation error, missing parent space, ...).
+    string reason = 2;
+}
+
+message BatchCreateRevisionsResponse {
+    // Positional, 1:1 with the request rows. Failed rows are empty stubs
+    // (kref unset); consult `failures` for the reason.
+    repeated RevisionResponse results = 1;
+    // Rows rejected by per-row validation. All valid rows commit atomically:
+    // any other failure fails the whole RPC with a gRPC error instead.
+    repeated BatchRevisionFailure failures = 2;
+    int32 requested_count = 3;
+    // Rows that now have a revision (newly created or idempotent replay).
+    int32 succeeded_count = 4;
+}
+
 // --- Artifact Messages ---
 
 message CreateArtifactRequest {
@@ -787,6 +827,7 @@ service KumihoService {
     rpc GetRevision(KrefRequest) returns (RevisionResponse);
     rpc GetRevisions(GetRevisionsRequest) returns (GetRevisionsResponse);
     rpc BatchGetRevisions(BatchGetRevisionsRequest) returns (BatchGetRevisionsResponse);
+    rpc BatchCreateRevisions(BatchCreateRevisionsRequest) returns (BatchCreateRevisionsResponse);
     rpc DeleteRevision(DeleteRevisionRequest) returns (StatusResponse);
     rpc PeekNextRevision(PeekNextRevisionRequest) returns (PeekNextRevisionResponse);
     rpc UpdateRevisionMetadata(UpdateMetadataRequest) returns (RevisionResponse);
