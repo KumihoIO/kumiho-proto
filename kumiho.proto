@@ -343,20 +343,46 @@ message BatchGetRevisionsResponse {
 // The bulk-write RPC behind backfill, dream state, and migrations: N rows
 // land in one transaction and one (chunked) embedding pass instead of N
 // serial single-writes.
+// An artifact to attach to a batch-created revision, completing the
+// Item -> Revision -> Artifact chain in the same transaction.
+message BatchArtifactInput {
+    // Artifact name; must be kref-safe ([A-Za-z0-9._-]+) and unique within
+    // the row. The artifact kref becomes "{revision_kref}&a={name}".
+    string name = 1;
+    // Storage location the artifact points at.
+    string location = 2;
+    map<string, string> metadata = 3;
+    // Make this artifact the revision's default, so the location resolves
+    // straight from an item kref (GetArtifact/ResolveLocation without an
+    // artifact name). At most one artifact per row may set this.
+    bool is_default = 4;
+}
+
+// One batch row: a revision to create plus any artifacts that go with it.
+message BatchRevisionRow {
+    // The revision to create. As with CreateRevision, `number` and
+    // `exists_error` are ignored (numbers are server-assigned).
+    CreateRevisionRequest revision = 1;
+    // Artifacts to attach to the created revision. An invalid artifact spec
+    // (bad name, duplicate name, >1 default) fails the whole row.
+    repeated BatchArtifactInput artifacts = 2;
+}
+
 message BatchCreateRevisionsRequest {
-    // Rows to write, in request order. Each row reuses CreateRevisionRequest;
-    // as with CreateRevision, `number` and `exists_error` are ignored
-    // (revision numbers are always server-assigned next-available).
-    // Missing parent Items are auto-created from item_kref (the parent Space
-    // must exist, or the row fails). Rows targeting the same item are applied
-    // in request order: consecutive numbers, SUPERSEDES chained between them,
-    // and the last row carries the 'latest' tag.
-    repeated CreateRevisionRequest revisions = 1;
+    // Rows to write, in request order. As with CreateRevision, each row's
+    // `number` and `exists_error` are ignored (revision numbers are always
+    // server-assigned next-available).
+    // Missing parent Items are auto-created from revision.item_kref (the
+    // parent Space must exist, or the row fails). Rows targeting the same
+    // item are applied in request order: consecutive numbers, SUPERSEDES
+    // chained between them, and the last row carries the 'latest' tag.
+    repeated BatchRevisionRow revisions = 1;
 
     // Optional idempotency prefix. When non-empty, each row is recorded under
     // the key "{prefix}:{row_index}" transactionally with the write, so
     // re-submitting the same batch returns the already-created revisions
-    // instead of writing duplicates. Empty = no idempotency.
+    // instead of writing duplicates (replayed rows skip artifact creation
+    // too). Empty = no idempotency.
     string idempotency_prefix = 2;
 }
 
