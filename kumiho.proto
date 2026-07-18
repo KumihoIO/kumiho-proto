@@ -215,6 +215,12 @@ message SearchRequest {
     // When enabled, also searches Revision/Artifact metadata (slower but more comprehensive)
     bool include_revision_metadata = 7;
     bool include_artifact_metadata = 8;
+
+    // Optional valid-time (as-of) filter: an RFC3339 instant. When non-empty,
+    // only items with a revision whose valid interval covers this instant are
+    // returned. See docs/valid-time.md for the valid_from/valid_until metadata
+    // convention. Empty/absent = no valid-time filtering.
+    optional string valid_at = 9;
 }
 
 message SearchResult {
@@ -298,6 +304,11 @@ message RevisionResponse {
     string username = 12;
     optional string default_artifact = 13;
     string name = 14;
+    // The embedding model that produced this revision's stored vector, and the
+    // vector's dimension. Absent when the revision has no embedding, or when the
+    // embedding predates model stamping (see docs/embedding-versioning.md).
+    optional string embedding_model = 15;
+    optional int32 embedding_dimensions = 16;
 }
 
 message DeleteRevisionRequest {
@@ -309,6 +320,10 @@ message GetRevisionsRequest {
     Kref item_kref = 1;
     // Optional pagination parameters
     optional PaginationRequest pagination = 2;
+    // Optional valid-time (as-of) filter: an RFC3339 instant. When non-empty,
+    // only revisions whose valid interval covers this instant are returned.
+    // See docs/valid-time.md. Empty/absent = no valid-time filtering.
+    optional string valid_at = 3;
 }
 
 message GetRevisionsResponse {
@@ -786,6 +801,25 @@ message CreateProjectRequest {
     string description = 2;
 }
 
+// One space-scoped kind rule in an ontology spec: within the space at
+// `space_path` (and its descendants), items may only be created with a kind in
+// `allowed_kinds`. The longest matching space_path prefix wins; a space that
+// matches no rule is unrestricted. See docs/strict-ontology.md.
+message SpaceKindRule {
+    string space_path = 1;          // absolute space path prefix, e.g. "/PROJ/facts"
+    repeated string allowed_kinds = 2;
+}
+
+// A project's registered ontology (vocabulary contract). Both axes are
+// independent partial specs: an empty `edge_types` leaves edge types
+// unrestricted, and empty `space_kinds` leaves item kinds unrestricted.
+message OntologySpec {
+    repeated string edge_types = 1;         // empty = edge types unrestricted
+    repeated SpaceKindRule space_kinds = 2; // empty = kinds unrestricted
+    string spec_item_kref = 3;              // optional pointer to the ontology.spec policy Item
+    string spec_version = 4;
+}
+
 message ProjectResponse {
     string project_id = 1;
     string name = 2;
@@ -794,6 +828,10 @@ message ProjectResponse {
     string updated_at = 5;
     bool deprecated = 6;
     bool allow_public = 7;
+    // Whether strict ontology enforcement is enabled for this project.
+    bool strict_ontology = 8;
+    // The registered ontology spec, absent when nothing is registered.
+    optional OntologySpec ontology_spec = 9;
 }
 
 message GetProjectsRequest {
@@ -815,6 +853,10 @@ message UpdateProjectRequest {
     string project_id = 1;
     optional bool allow_public = 2;
     optional string description = 3;
+    // Register/replace the project's ontology spec (whole-spec replace).
+    optional OntologySpec ontology_spec = 4;
+    // Enable/disable strict ontology enforcement. See docs/strict-ontology.md.
+    optional bool strict_ontology = 5;
 }
 
 // The Kumiho service definition.
