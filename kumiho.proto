@@ -94,6 +94,7 @@ message CreateSpaceRequest {
     string parent_path = 1;
     string space_name = 2;
     bool exists_error = 3;
+    map<string, string> metadata = 4;
 }
 
 message SpaceResponse {
@@ -784,6 +785,7 @@ message EventCapabilities {
 message CreateProjectRequest {
     string name = 1;
     string description = 2;
+    map<string, string> metadata = 3;
 }
 
 message ProjectResponse {
@@ -794,10 +796,11 @@ message ProjectResponse {
     string updated_at = 5;
     bool deprecated = 6;
     bool allow_public = 7;
+    map<string, string> metadata = 8;
 }
 
 message GetProjectsRequest {
-    // Reserved for future filters; currently unused.
+    bool include_deprecated = 1;
 }
 
 message GetProjectsResponse {
@@ -806,8 +809,26 @@ message GetProjectsResponse {
 
 message DeleteProjectRequest {
     string project_id = 1;
-    // force=true lets owner/admin hard-delete; otherwise deprecates.
+    // force=true requests hard-delete; owner/admin must also supply the
+    // current server-issued impact snapshot and explicit confirmation.
     bool force = 2;
+    string impact_snapshot_id = 3;
+    string impact_snapshot_hash = 4;
+    bool confirmed = 5;
+}
+
+message ProjectDeletionImpactRequest {
+    string project_id = 1;
+}
+
+message ProjectDeletionImpactResponse {
+    string impact_snapshot_id = 1;
+    string impact_snapshot_hash = 2;
+    string project_id = 3;
+    string project_name = 4;
+    repeated string blockers = 5;
+    repeated string descendants = 6;
+    string created_at = 7;
 }
 
 
@@ -815,6 +836,9 @@ message UpdateProjectRequest {
     string project_id = 1;
     optional bool allow_public = 2;
     optional string description = 3;
+    // Non-empty metadata replaces the complete Project metadata map.
+    map<string, string> metadata = 4;
+    optional bool deprecated = 5;
 }
 
 // The Kumiho service definition.
@@ -823,6 +847,7 @@ service KumihoService {
     rpc CreateProject(CreateProjectRequest) returns (ProjectResponse);
     rpc GetProjects(GetProjectsRequest) returns (GetProjectsResponse);
     rpc UpdateProject(UpdateProjectRequest) returns (ProjectResponse);
+    rpc AnalyzeProjectDeletion(ProjectDeletionImpactRequest) returns (ProjectDeletionImpactResponse);
     rpc DeleteProject(DeleteProjectRequest) returns (StatusResponse);
 
     // Space methods
