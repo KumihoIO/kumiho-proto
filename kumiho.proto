@@ -809,8 +809,26 @@ message GetProjectsResponse {
 
 message DeleteProjectRequest {
     string project_id = 1;
-    // force=true lets owner/admin hard-delete; otherwise deprecates.
+    // force=true requests hard-delete; owner/admin must also supply the
+    // current server-issued impact snapshot and explicit confirmation.
     bool force = 2;
+    string impact_snapshot_id = 3;
+    string impact_snapshot_hash = 4;
+    bool confirmed = 5;
+}
+
+message ProjectDeletionImpactRequest {
+    string project_id = 1;
+}
+
+message ProjectDeletionImpactResponse {
+    string impact_snapshot_id = 1;
+    string impact_snapshot_hash = 2;
+    string project_id = 3;
+    string project_name = 4;
+    repeated string blockers = 5;
+    repeated string descendants = 6;
+    string created_at = 7;
 }
 
 
@@ -829,6 +847,7 @@ service KumihoService {
     rpc CreateProject(CreateProjectRequest) returns (ProjectResponse);
     rpc GetProjects(GetProjectsRequest) returns (GetProjectsResponse);
     rpc UpdateProject(UpdateProjectRequest) returns (ProjectResponse);
+    rpc AnalyzeProjectDeletion(ProjectDeletionImpactRequest) returns (ProjectDeletionImpactResponse);
     rpc DeleteProject(DeleteProjectRequest) returns (StatusResponse);
 
     // Space methods
