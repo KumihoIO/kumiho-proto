@@ -800,7 +800,7 @@ message ProjectResponse {
 }
 
 message GetProjectsRequest {
-    // Reserved for future filters; currently unused.
+    bool include_deprecated = 1;
 }
 
 message GetProjectsResponse {
@@ -820,6 +820,7 @@ message UpdateProjectRequest {
     optional string description = 3;
     // Non-empty metadata replaces the complete Project metadata map.
     map<string, string> metadata = 4;
+    optional bool deprecated = 5;
 }
 
 // The Kumiho service definition.
