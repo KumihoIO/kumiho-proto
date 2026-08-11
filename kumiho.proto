@@ -784,6 +784,7 @@ message EventCapabilities {
 message CreateProjectRequest {
     string name = 1;
     string description = 2;
+    map<string, string> metadata = 3;
 }
 
 message ProjectResponse {
@@ -794,6 +795,7 @@ message ProjectResponse {
     string updated_at = 5;
     bool deprecated = 6;
     bool allow_public = 7;
+    map<string, string> metadata = 8;
 }
 
 message GetProjectsRequest {
@@ -815,6 +817,8 @@ message UpdateProjectRequest {
     string project_id = 1;
     optional bool allow_public = 2;
     optional string description = 3;
+    // Non-empty metadata replaces the complete Project metadata map.
+    map<string, string> metadata = 4;
 }
 
 // The Kumiho service definition.
