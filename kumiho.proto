@@ -863,6 +863,18 @@ message MoveItemRequest {
     string target_space_path = 2;
 }
 
+// Resolve one registered cross-Project Revision reference on an archived
+// Project. The server validates the current edge and owns the mutation.
+message ResolveProjectReferenceRequest {
+    string project_id = 1;
+    string inside_revision_kref = 2;
+    string outside_revision_kref = 3;
+    string edge_type = 4;
+    // "detach" or "replace".
+    string action = 5;
+    string replacement_revision_kref = 6;
+}
+
 
 message UpdateProjectRequest {
     string project_id = 1;
@@ -882,6 +894,7 @@ service KumihoService {
     rpc AnalyzeProjectDeletion(ProjectDeletionImpactRequest) returns (ProjectDeletionImpactResponse);
     rpc RegisterProjectDeletionGuard(RegisterProjectDeletionGuardRequest) returns (ProjectDeletionGuardResponse);
     rpc ResolveProjectDeletionGuard(ResolveProjectDeletionGuardRequest) returns (StatusResponse);
+    rpc ResolveProjectReference(ResolveProjectReferenceRequest) returns (StatusResponse);
     rpc DeleteProject(DeleteProjectRequest) returns (StatusResponse);
 
     // Space methods
