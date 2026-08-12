@@ -880,7 +880,7 @@ message UpdateProjectRequest {
     string project_id = 1;
     optional bool allow_public = 2;
     optional string description = 3;
-    // Non-empty metadata replaces the complete Project metadata map.
+    // Non-empty metadata merges the supplied keys into Project metadata.
     map<string, string> metadata = 4;
     optional bool deprecated = 5;
 }
