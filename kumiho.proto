@@ -809,12 +809,20 @@ message GetProjectsResponse {
 
 message DeleteProjectRequest {
     string project_id = 1;
-    // force=true requests hard-delete; owner/admin must also supply the
-    // current server-issued impact snapshot and explicit confirmation.
+    // Legacy contract: owner/admin force=true performs immediate permanent
+    // deletion; other calls archive the Project.
     bool force = 2;
-    string impact_snapshot_id = 3;
-    string impact_snapshot_hash = 4;
-    bool confirmed = 5;
+    reserved 3, 4, 5;
+    reserved "impact_snapshot_id", "impact_snapshot_hash", "confirmed";
+}
+
+// Snapshot-bound permanent deletion. New clients should prefer this API over
+// DeleteProject(force=true); the legacy operation remains for compatibility.
+message HardDeleteProjectRequest {
+    string project_id = 1;
+    string impact_snapshot_id = 2;
+    string impact_snapshot_hash = 3;
+    bool confirmed = 4;
 }
 
 message ProjectDeletionImpactRequest {
@@ -896,6 +904,7 @@ service KumihoService {
     rpc ResolveProjectDeletionGuard(ResolveProjectDeletionGuardRequest) returns (StatusResponse);
     rpc ResolveProjectReference(ResolveProjectReferenceRequest) returns (StatusResponse);
     rpc DeleteProject(DeleteProjectRequest) returns (StatusResponse);
+    rpc HardDeleteProject(HardDeleteProjectRequest) returns (StatusResponse);
 
     // Space methods
     rpc CreateSpace(CreateSpaceRequest) returns (SpaceResponse);
