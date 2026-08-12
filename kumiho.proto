@@ -831,6 +831,30 @@ message ProjectDeletionImpactResponse {
     string created_at = 7;
 }
 
+// Opaque application-owned deletion guard. Kumiho stores and enforces the
+// guard without interpreting application kinds, statuses, or metadata values.
+message RegisterProjectDeletionGuardRequest {
+    string project_id = 1;
+    string guard_id = 2;
+    string resource_kref = 3;
+    repeated string allowed_operations = 4;
+    repeated string allowed_metadata_keys = 5;
+}
+
+message ResolveProjectDeletionGuardRequest {
+    string project_id = 1;
+    string guard_id = 2;
+}
+
+message ProjectDeletionGuardResponse {
+    string project_id = 1;
+    string guard_id = 2;
+    string resource_kref = 3;
+    repeated string allowed_operations = 4;
+    repeated string allowed_metadata_keys = 5;
+    string created_at = 6;
+}
+
 
 message UpdateProjectRequest {
     string project_id = 1;
@@ -848,6 +872,8 @@ service KumihoService {
     rpc GetProjects(GetProjectsRequest) returns (GetProjectsResponse);
     rpc UpdateProject(UpdateProjectRequest) returns (ProjectResponse);
     rpc AnalyzeProjectDeletion(ProjectDeletionImpactRequest) returns (ProjectDeletionImpactResponse);
+    rpc RegisterProjectDeletionGuard(RegisterProjectDeletionGuardRequest) returns (ProjectDeletionGuardResponse);
+    rpc ResolveProjectDeletionGuard(ResolveProjectDeletionGuardRequest) returns (StatusResponse);
     rpc DeleteProject(DeleteProjectRequest) returns (StatusResponse);
 
     // Space methods
