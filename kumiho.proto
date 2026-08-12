@@ -855,6 +855,14 @@ message ProjectDeletionGuardResponse {
     string created_at = 6;
 }
 
+// Move an Item between tenant-owned Spaces while preserving its immutable kref.
+// This is a graph ownership operation; application-specific metadata is not
+// interpreted by Kumiho.
+message MoveItemRequest {
+    string item_kref = 1;
+    string target_space_path = 2;
+}
+
 
 message UpdateProjectRequest {
     string project_id = 1;
@@ -890,6 +898,7 @@ service KumihoService {
     rpc ItemSearch(ItemSearchRequest) returns (GetItemsResponse);
     rpc DeleteItem(DeleteItemRequest) returns (StatusResponse);
     rpc UpdateItemMetadata(UpdateMetadataRequest) returns (ItemResponse);
+    rpc MoveItem(MoveItemRequest) returns (ItemResponse);
 
     // Full-text search (Google-like fuzzy search across items)
     rpc Search(SearchRequest) returns (SearchResponse);
