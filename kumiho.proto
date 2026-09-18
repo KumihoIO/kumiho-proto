@@ -987,6 +987,11 @@ service KumihoService {
 
     // Deprecation methods
     rpc SetDeprecated(SetDeprecatedRequest) returns (StatusResponse);
+
+    // --- Evaluation (Kumiho Cloud, paid tiers only) -----------------------
+    // Judge prepared fragments against caller-supplied questions using a
+    // server-managed evaluation provider. Not available in self-hosted CE.
+    rpc Evaluate(EvaluateRequest) returns (EvaluateResponse);
 }
 
 message SetDeprecatedRequest {
@@ -1002,4 +1007,183 @@ message TenantUsageResponse {
     int64 node_count = 1;
     int64 node_limit = 2;
     string tenant_id = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Evaluation (Kumiho Cloud, paid tiers only)
+//
+// `Evaluate` is a pure function of its request plus metering/cache state. It
+// never reads, writes, tags or otherwise touches the graph. Krefs and tenant
+// identifiers never leave the server: the caller supplies opaque fragment ids
+// and the text to judge.
+//
+// Wire shape sent to the evaluation provider (identical in both modes):
+//
+//   state = {
+//     "query":   <task.query>,
+//     "context": <task.extra_context>,          // omitted when empty
+//     "fragments": {
+//       "F01": {"text": <fragment.text>, ...fragment.metadata entries...},
+//       "F02": {...}
+//     }
+//   }
+//
+// The server assigns the labels `F01`, `F02`, ... in request order and keeps
+// the label -> fragment_id map private. Caller fragment ids are never sent to
+// the provider.
+// ---------------------------------------------------------------------------
+
+enum EvaluationMode {
+    // Server picks. Currently BATCHED: judging the fragments together ranks
+    // the relevant ones better than one request per fragment, costs fewer
+    // tokens, and needs a handful of provider requests per call instead of
+    // one per fragment.
+    EVALUATION_MODE_UNSPECIFIED = 0;
+    // One provider request per fragment. Costs the question/criteria tokens
+    // once per fragment and burns one request from the provider's account-wide
+    // rate budget per fragment.
+    EVALUATION_MODE_PER_FRAGMENT = 1;
+    // Fragments are packed into as few provider requests as the provider's
+    // token limits allow, in request order (see `EvaluateResponse.usage`).
+    EVALUATION_MODE_BATCHED = 2;
+}
+
+enum QuestionType {
+    QUESTION_TYPE_UNSPECIFIED = 0;
+    QUESTION_TYPE_NOUL = 1;    // -> float in [0,1]
+    QUESTION_TYPE_CHOICE = 2;  // -> chosen option + per-option probabilities
+    QUESTION_TYPE_SCORE = 3;   // -> numeric level + legend
+}
+
+message EvaluationTaskContext {
+    // What the caller is trying to answer/do. Sent to the provider verbatim.
+    string query = 1;
+    // Optional extra framing (constraints, current date, workspace hints).
+    // Omitted from the provider request when empty.
+    string extra_context = 2;
+}
+
+message EvaluationFragment {
+    // Caller-scoped id, unique within this request. Echoed back on every
+    // answer. Never sent to the provider, which sees only the server-assigned
+    // label. Must NOT be a kref: krefs and tenant identifiers never leave the
+    // server.
+    string fragment_id = 1;
+    // The text to judge.
+    string text = 2;
+    // Optional non-identifying hints (e.g. {"origin":"user"}). Merged into the
+    // fragment object sent to the provider alongside `text`; keep it small, it
+    // is billed as input tokens.
+    map<string, string> metadata = 3;
+}
+
+message EvaluationQuestion {
+    // Unique within the request, non-empty. Must not contain `__`, which the
+    // server uses to build per-fragment provider question ids.
+    string question_id = 1;
+    QuestionType type = 2;
+    // Natural-language instructions. Billed on every provider request.
+    //
+    // `instructions` and the `criteria` texts may contain the literal
+    // placeholder `{fragment}`. The server then renders one provider question
+    // per (question, fragment) with `{fragment}` replaced by that fragment's
+    // label, e.g. "Does memory {fragment} address the subject of the query?"
+    // becomes "Does memory F07 address the subject of the query?".
+    //
+    // A question with no `{fragment}` placeholder is asked once per provider
+    // request and its answer is attached to every fragment in that request.
+    string instructions = 3;
+    // NOUL:   optional; keys "true" / "false".
+    // CHOICE: required; option -> description (description may be empty).
+    //         At most 255 options.
+    // SCORE:  ignored; use `criteria_levels` instead.
+    map<string, string> criteria = 4;
+    // SCORE only: >= 2 ordered level descriptions.
+    repeated string criteria_levels = 5;
+}
+
+message EvaluateRequest {
+    EvaluationTaskContext task = 1;
+    // At most 64 per call. Ids must be non-empty and unique.
+    repeated EvaluationFragment fragments = 2;
+    // At most 8 per call.
+    repeated EvaluationQuestion questions = 3;
+    EvaluationMode mode = 4;
+    // Opaque caller-owned version string, folded into the cache key and echoed
+    // back. Enables reproducibility and rollback.
+    string rubric_version = 5;
+    // Caller's overall deadline hint. The server clamps to its own maximum.
+    uint32 timeout_ms = 6;
+    // When true (the default) the server may serve a cached response. When
+    // false the read is bypassed but the fresh response is still cached.
+    optional bool allow_cache = 7;
+}
+
+enum EvaluationStatus {
+    EVALUATION_STATUS_UNSPECIFIED = 0;
+    EVALUATION_STATUS_OK = 1;
+    EVALUATION_STATUS_PARTIAL = 2;              // some fragments answered, some not
+    EVALUATION_STATUS_OVER_LIMIT = 3;           // monthly input-token budget exhausted
+    EVALUATION_STATUS_NOT_ENTITLED = 4;         // evaluation not enabled for this tenant
+    EVALUATION_STATUS_PROVIDER_UNAVAILABLE = 5; // timeout / breaker open / 5xx / meter down
+    EVALUATION_STATUS_INVALID_REQUEST = 6;      // shape violation, or a single fragment too large
+}
+
+message NoulAnswer {
+    float noul = 1;
+}
+
+message ChoiceAnswer {
+    string choice = 1;
+    map<string, float> probabilities = 2;
+    float confidence = 3;
+}
+
+message ScoreAnswer {
+    float score = 1;
+    repeated string legend = 2;
+    repeated float probabilities = 3;
+    float confidence = 4;
+}
+
+message EvaluationAnswer {
+    // The caller's `question_id`, not the server's internal per-fragment id.
+    string question_id = 1;
+    oneof value {
+        NoulAnswer noul = 2;
+        ChoiceAnswer choice = 3;
+        ScoreAnswer score = 4;
+    }
+}
+
+message FragmentEvaluation {
+    string fragment_id = 1;
+    repeated EvaluationAnswer answers = 2;
+    // Per-fragment failure (e.g. the provider request carrying this fragment
+    // failed). Empty when the fragment was answered. Never contains provider
+    // keys or provider response bodies.
+    string error = 3;
+}
+
+message EvaluationUsage {
+    int64 input_tokens = 1;       // provider-reported, billable; 0 on a cache hit
+    int64 output_tokens = 2;      // provider-reported
+    int32 provider_requests = 3;  // chunks actually sent
+    int32 cached_fragments = 4;   // fragments served from cache (not metered)
+    int64 month_tokens_used = 5;  // after this request
+    int64 month_tokens_limit = 6; // -1 = unlimited
+}
+
+message EvaluateResponse {
+    EvaluationStatus status = 1;
+    // One entry per request fragment, in request order.
+    repeated FragmentEvaluation fragments = 2;
+    EvaluationUsage usage = 3;
+    // The provider's resolved, versioned model id, not the requested
+    // alias. Empty on a request that never reached the provider.
+    string model_id = 4;
+    string rubric_version = 5;
+    // Human-readable detail for non-OK statuses. Never contains provider keys,
+    // provider response bodies or fragment text.
+    string message = 6;
 }
