@@ -216,6 +216,11 @@ message SearchRequest {
     // When enabled, also searches Revision/Artifact metadata (slower but more comprehensive)
     bool include_revision_metadata = 7;
     bool include_artifact_metadata = 8;
+    // Opt-in: validate this exact active project under the authenticated tenant.
+    // Context must be this project or one of its spaces. Empty keeps legacy behavior.
+    string memory_project = 9;
+    // Resolve current published, then latest revision for leading hits (1..1000).
+    int32 memory_revision_limit = 10;
 }
 
 message SearchResult {
@@ -228,6 +233,9 @@ message SearchResult {
     // Where the match was found: "item", "revision", "artifact"
     // Multiple values if matched in multiple places
     repeated string matched_in = 3;
+    optional RevisionResponse memory_revision = 4;
+    // True also represents a checked hit with no accessible current revision.
+    bool memory_revision_resolved = 5;
 }
 
 message SearchResponse {
@@ -240,6 +248,8 @@ message SearchResponse {
     // Search mode used: "fulltext" (Lucene only) or "hybrid" (fulltext + vector)
     // Hybrid mode is available for STUDIO+ tiers with vector embeddings enabled
     optional string search_mode = 3;
+    // Project validation completed, including when results are empty.
+    bool memory_project_validated = 4;
 }
 
 // --- Revision Scoring Messages ---
