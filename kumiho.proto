@@ -416,6 +416,107 @@ message BatchCreateRevisionsResponse {
     int32 succeeded_count = 4;
 }
 
+// Current tenant read authorization is required. These capabilities describe
+// native atomic mutations, not token authentication, replication or release.
+message GetMutationCapabilitiesRequest {}
+
+message MutationCapabilities {
+    bool batch_expected_latest_revision = 1;
+    bool transactional_idempotency_fingerprint = 2;
+    string contract_version = 3;
+    bool atomic_derived_from_edges = 4;
+    // P4d: the distinct BatchIngest RPC below is implemented. An SDK asks
+    // before it sends one; a server that predates it answers false (or does not
+    // know the field) and fails the RPC closed with UNIMPLEMENTED.
+    bool batch_ingest = 5;
+}
+
+// P4d-additive-begin
+// BatchIngest: memories (revisions with their artifacts), the edges among them
+// or to existing revisions, and tags on them, in one atomic command -- one
+// transaction, one commit -- instead of one command per edge and per tag.
+// Every element is keyed under the request's prefix and has its own receipt and
+// event, so a request sent again after a lost reply replays what committed and
+// commits only what is new. The size of one request is bounded by what its
+// atomic command may read, not only by count: at most 200 revisions, 500 edges
+// and 500 tags, and 60 reads per revision plus 32 per edge or tag within
+// 32,000 (so at most 200 revisions, 500 edges and 125 tags together).
+// One end of an ingest edge.
+message IngestEndpoint {
+    oneof target {
+        // The revision the request's revisions[row_index] creates (or replays).
+        int32 row_index = 1;
+        // An existing item revision named by number
+        // (kref://project/space/item.kind?r=3); a tag selector or an artifact
+        // is refused.
+        Kref revision_kref = 2;
+    }
+}
+
+message IngestEdge {
+    IngestEndpoint source = 1;
+    IngestEndpoint target = 2;
+    // The edge name, matching ^[A-Z][A-Z0-9_]{0,49}$.
+    string edge_type = 3;
+    map<string, string> metadata = 4;
+}
+
+// A tag on the revision the request's revisions[row_index] creates (`latest`
+// is system-managed; `published` publishes and freezes that revision).
+message IngestTag {
+    int32 row_index = 1;
+    string tag = 2;
+}
+
+message BatchIngestRequest {
+    // Memories to write, as in BatchCreateRevisions (items auto-created,
+    // artifacts attached, embedding_text honored).
+    repeated BatchRevisionRow revisions = 1;
+    repeated IngestEdge edges = 2;
+    repeated IngestTag tags = 3;
+    // Required and non-empty: row i is keyed "{prefix}:{i}", edge i and tag i
+    // likewise under their own kind.
+    string idempotency_prefix = 4;
+}
+
+message IngestEdgeResult {
+    // False for an edge that failed validation (see edge_failures).
+    bool succeeded = 1;
+    // False when the edge was already active (the assert is a no-op).
+    bool created = 2;
+    bool replayed = 3;
+}
+
+message IngestTagResult {
+    // False for a tag that failed validation (see tag_failures).
+    bool succeeded = 1;
+    // The revision number the tag points at now (0 when it points nowhere).
+    int32 revision_number = 2;
+    int64 tag_version = 3;
+    // False when the tag already pointed there.
+    bool changed = 4;
+    bool replayed = 5;
+}
+
+message BatchIngestResponse {
+    // Positional, 1:1 with the request revisions; failed rows are empty stubs.
+    repeated RevisionResponse results = 1;
+    // Rows that failed validation by themselves.
+    repeated BatchRevisionFailure failures = 2;
+    // Positional, 1:1 with the request edges.
+    repeated IngestEdgeResult edges = 3;
+    // Edges that failed validation by themselves or whose row was rejected.
+    repeated BatchRevisionFailure edge_failures = 4;
+    // Positional, 1:1 with the request tags.
+    repeated IngestTagResult tags = 5;
+    repeated BatchRevisionFailure tag_failures = 6;
+    int32 requested_count = 7;
+    int32 succeeded_count = 8;
+    int32 edges_succeeded_count = 9;
+    int32 tags_succeeded_count = 10;
+}
+// P4d-additive-end
+
 // --- Artifact Messages ---
 
 message CreateArtifactRequest {
@@ -946,6 +1047,13 @@ service KumihoService {
     rpc GetRevisions(GetRevisionsRequest) returns (GetRevisionsResponse);
     rpc BatchGetRevisions(BatchGetRevisionsRequest) returns (BatchGetRevisionsResponse);
     rpc BatchCreateRevisions(BatchCreateRevisionsRequest) returns (BatchCreateRevisionsResponse);
+    // GetMutationCapabilities reports which native atomic mutations the server
+    // implements; BatchIngest is gated on MutationCapabilities.batch_ingest.
+    rpc GetMutationCapabilities(GetMutationCapabilitiesRequest) returns (MutationCapabilities);
+    // Revisions, edges and tags in one atomic command, each element idempotent
+    // under the prefix (see BatchIngestRequest). Servers that predate it fail
+    // closed with UNIMPLEMENTED.
+    rpc BatchIngest(BatchIngestRequest) returns (BatchIngestResponse);
     rpc DeleteRevision(DeleteRevisionRequest) returns (StatusResponse);
     rpc PeekNextRevision(PeekNextRevisionRequest) returns (PeekNextRevisionResponse);
     rpc UpdateRevisionMetadata(UpdateMetadataRequest) returns (RevisionResponse);
